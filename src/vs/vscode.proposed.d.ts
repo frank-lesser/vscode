@@ -1255,30 +1255,6 @@ declare module 'vscode' {
 		 */
 		clear?: boolean;
 	}
-
-
-	export enum RerunBehavior {
-		reevaluate = 1,
-		useEvaluated = 2,
-	}
-
-
-	export interface RunOptions {
-		/**
-		 * Controls the behavior of a task when it is rerun.
-		 */
-		rerunBehavior?: RerunBehavior;
-	}
-
-	/**
-	 * A task to execute
-	 */
-	export class Task2 extends Task {
-		/**
-		 * Run options for the task
-		 */
-		runOptions: RunOptions;
-	}
 	//#endregion
 
 }
