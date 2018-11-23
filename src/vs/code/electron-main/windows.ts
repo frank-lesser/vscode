@@ -471,9 +471,9 @@ export class WindowsManager implements IWindowsMainService {
 				for (let i = usedWindows.length - 1; i >= 0; i--) {
 					const usedWindow = usedWindows[i];
 					if (
-						(usedWindow.openedWorkspace && workspacesToRestore.some(workspace => workspace.id === usedWindow.openedWorkspace.id)) || 							// skip over restored workspace
-						(usedWindow.openedFolderUri && foldersToRestore.some(folder => isEqual(folder, usedWindow.openedFolderUri))) ||	// skip over restored folder
-						(usedWindow.backupPath && emptyToRestore.some(empty => empty.backupFolder === basename(usedWindow.backupPath)))													// skip over restored empty window
+						(usedWindow.openedWorkspace && workspacesToRestore.some(workspace => workspace.id === usedWindow.openedWorkspace.id)) ||	// skip over restored workspace
+						(usedWindow.openedFolderUri && foldersToRestore.some(folder => isEqual(folder, usedWindow.openedFolderUri))) ||				// skip over restored folder
+						(usedWindow.backupPath && emptyToRestore.some(empty => empty.backupFolder === basename(usedWindow.backupPath)))				// skip over restored empty window
 					) {
 						continue;
 					}
@@ -861,8 +861,8 @@ export class WindowsManager implements IWindowsMainService {
 			if (path) {
 				pathsToOpen.push(path);
 			} else {
-				// Warn about the invalid URI or path
 
+				// Warn about the invalid URI or path
 				let message, detail;
 				if (pathToOpen.scheme === Schemas.file) {
 					message = localize('pathNotExistTitle', "Path does not exist");
