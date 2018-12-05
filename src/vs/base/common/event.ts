@@ -403,9 +403,9 @@ export function anyEvent<T>(...events: Event<T>[]): Event<T> {
 	return (listener, thisArgs = null, disposables?) => combinedDisposable(events.map(event => event(e => listener.call(thisArgs, e), null, disposables)));
 }
 
-export function debounceEvent<T>(event: Event<T>, merger: (last: T, event: T) => T, delay?: number, leading?: boolean): Event<T>;
-export function debounceEvent<I, O>(event: Event<I>, merger: (last: O | undefined, event: I) => O, delay?: number, leading?: boolean): Event<O>;
-export function debounceEvent<I, O>(event: Event<I>, merger: (last: O | undefined, event: I) => O, delay: number = 100, leading = false): Event<O> {
+export function debounceEvent<T>(event: Event<T>, merger: (last: T, event: T) => T, delay?: number, leading?: boolean, leakWarningThreshold?: number): Event<T>;
+export function debounceEvent<I, O>(event: Event<I>, merger: (last: O | undefined, event: I) => O, delay?: number, leading?: boolean, leakWarningThreshold?: number): Event<O>;
+export function debounceEvent<I, O>(event: Event<I>, merger: (last: O | undefined, event: I) => O, delay: number = 100, leading = false, leakWarningThreshold?: number): Event<O> {
 
 	let subscription: IDisposable;
 	let output: O | undefined = undefined;
@@ -413,6 +413,7 @@ export function debounceEvent<I, O>(event: Event<I>, merger: (last: O | undefine
 	let numDebouncedCalls = 0;
 
 	const emitter = new Emitter<O>({
+		leakWarningThreshold,
 		onFirstListenerAdd() {
 			subscription = event(cur => {
 				numDebouncedCalls++;
@@ -444,7 +445,7 @@ export function debounceEvent<I, O>(event: Event<I>, merger: (last: O | undefine
 }
 
 /**
- * The EventDelayer is useful in situations in which you want
+ * The EventBufferer is useful in situations in which you want
  * to delay firing your events during some code.
  * You can wrap that code and be sure that the event will not
  * be fired during that wrap.

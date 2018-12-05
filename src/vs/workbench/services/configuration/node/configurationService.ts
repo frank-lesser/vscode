@@ -37,6 +37,7 @@ import { UserConfiguration } from 'vs/platform/configuration/node/configuration'
 import { IJSONSchema, IJSONSchemaMap } from 'vs/base/common/jsonSchema';
 import { localize } from 'vs/nls';
 import { isEqual } from 'vs/base/common/resources';
+import { mark } from 'vs/base/common/performance';
 
 export class WorkspaceService extends Disposable implements IWorkspaceConfigurationService, IWorkspaceContextService {
 
@@ -51,7 +52,7 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 
 	private workspaceEditingQueue: Queue<void>;
 
-	protected readonly _onDidChangeConfiguration: Emitter<IConfigurationChangeEvent> = this._register(new Emitter<IConfigurationChangeEvent>());
+	protected readonly _onDidChangeConfiguration: Emitter<IConfigurationChangeEvent> = this._register(new Emitter<IConfigurationChangeEvent>({ leakWarningThreshold: 500 }));
 	public readonly onDidChangeConfiguration: Event<IConfigurationChangeEvent> = this._onDidChangeConfiguration.event;
 
 	protected readonly _onDidChangeWorkspaceFolders: Emitter<IWorkspaceFoldersChangeEvent> = this._register(new Emitter<IWorkspaceFoldersChangeEvent>());
@@ -292,8 +293,11 @@ export class WorkspaceService extends Disposable implements IWorkspaceConfigurat
 	}
 
 	initialize(arg: IWorkspaceInitializationPayload, postInitialisationTask: () => void = () => null): Promise<any> {
+		mark('willInitWorkspaceService');
 		return this.createWorkspace(arg)
-			.then(workspace => this.updateWorkspaceAndInitializeConfiguration(workspace, postInitialisationTask));
+			.then(workspace => this.updateWorkspaceAndInitializeConfiguration(workspace, postInitialisationTask)).then(() => {
+				mark('didInitWorkspaceService');
+			});
 	}
 
 	acquireFileService(fileService: IFileService): void {
