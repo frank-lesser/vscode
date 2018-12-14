@@ -174,13 +174,13 @@ export class ModesHoverController implements IEditorContribution {
 		if (targetType === MouseTargetType.CONTENT_TEXT) {
 			this.glyphWidget.hide();
 
-			if (this._isHoverEnabled) {
+			if (this._isHoverEnabled && mouseEvent.target.range) {
 				this.contentWidget.startShowingAt(mouseEvent.target.range, HoverStartMode.Delayed, false);
 			}
 		} else if (targetType === MouseTargetType.GUTTER_GLYPH_MARGIN) {
 			this.contentWidget.hide();
 
-			if (this._isHoverEnabled) {
+			if (this._isHoverEnabled && mouseEvent.target.position) {
 				this.glyphWidget.startShowingAt(mouseEvent.target.position.lineNumber);
 			}
 		} else {
@@ -224,11 +224,9 @@ export class ModesHoverController implements IEditorContribution {
 
 		if (this._glyphWidget) {
 			this._glyphWidget.dispose();
-			this._glyphWidget = null;
 		}
 		if (this._contentWidget) {
 			this._contentWidget.dispose();
-			this._contentWidget = null;
 		}
 	}
 }
@@ -256,6 +254,9 @@ class ShowHoverAction extends EditorAction {
 	}
 
 	public run(accessor: ServicesAccessor, editor: ICodeEditor): void {
+		if (!editor.hasModel()) {
+			return;
+		}
 		let controller = ModesHoverController.get(editor);
 		if (!controller) {
 			return;
@@ -283,6 +284,8 @@ registerThemingParticipant((theme, collector) => {
 	if (hoverBorder) {
 		collector.addRule(`.monaco-editor .monaco-editor-hover { border: 1px solid ${hoverBorder}; }`);
 		collector.addRule(`.monaco-editor .monaco-editor-hover .hover-row:not(:first-child):not(:empty) { border-top: 1px solid ${hoverBorder.transparent(0.5)}; }`);
+		collector.addRule(`.monaco-editor .monaco-editor-hover hr { border-top: 1px solid ${hoverBorder.transparent(0.5)}; }`);
+		collector.addRule(`.monaco-editor .monaco-editor-hover hr { border-bottom: 0px solid ${hoverBorder.transparent(0.5)}; }`);
 	}
 	const link = theme.getColor(textLinkForeground);
 	if (link) {

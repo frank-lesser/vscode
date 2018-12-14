@@ -8,7 +8,7 @@ import * as arrays from 'vs/base/common/arrays';
 import { IStateService } from 'vs/platform/state/common/state';
 import { app } from 'electron';
 import { ILogService } from 'vs/platform/log/common/log';
-import { getBaseLabel } from 'vs/base/common/labels';
+import { getBaseLabel, getPathLabel } from 'vs/base/common/labels';
 import { IPath } from 'vs/platform/windows/common/windows';
 import { Event as CommonEvent, Emitter } from 'vs/base/common/event';
 import { isWindows, isMacintosh, isLinux } from 'vs/base/common/platform';
@@ -19,15 +19,16 @@ import { RunOnceScheduler } from 'vs/base/common/async';
 import { getComparisonKey, isEqual as areResourcesEqual, dirname } from 'vs/base/common/resources';
 import { URI, UriComponents } from 'vs/base/common/uri';
 import { Schemas } from 'vs/base/common/network';
-import { ILabelService } from 'vs/platform/label/common/label';
+import { IEnvironmentService } from 'vs/platform/environment/common/environment';
+import { getSimpleWorkspaceLabel } from 'vs/platform/label/common/label';
 
 interface ISerializedRecentlyOpened {
-	workspaces2: (IWorkspaceIdentifier | string)[]; // IWorkspaceIdentifier or URI.toString()
+	workspaces2: Array<IWorkspaceIdentifier | string>; // IWorkspaceIdentifier or URI.toString()
 	files2: string[]; // files as URI.toString()
 }
 
 interface ILegacySerializedRecentlyOpened {
-	workspaces: (IWorkspaceIdentifier | string | UriComponents)[]; // legacy (UriComponents was also supported for a few insider builds)
+	workspaces: Array<IWorkspaceIdentifier | string | UriComponents>; // legacy (UriComponents was also supported for a few insider builds)
 	files: string[]; // files as paths
 }
 
@@ -49,7 +50,7 @@ export class HistoryMainService implements IHistoryMainService {
 		@IStateService private stateService: IStateService,
 		@ILogService private logService: ILogService,
 		@IWorkspacesMainService private workspacesMainService: IWorkspacesMainService,
-		@ILabelService private labelService: ILabelService
+		@IEnvironmentService private environmentService: IEnvironmentService
 	) {
 		this.macOSRecentDocumentsUpdater = new RunOnceScheduler(() => this.updateMacOSRecentDocuments(), 800);
 
@@ -58,7 +59,6 @@ export class HistoryMainService implements IHistoryMainService {
 
 	private registerListeners(): void {
 		this.workspacesMainService.onWorkspaceSaved(e => this.onWorkspaceSaved(e));
-		this.labelService.onDidRegisterFormatter(() => this._onRecentlyOpenedChange.fire());
 	}
 
 	private onWorkspaceSaved(e: IWorkspaceSavedEvent): void {
@@ -67,7 +67,7 @@ export class HistoryMainService implements IHistoryMainService {
 		this.addRecentlyOpened([e.workspace], []);
 	}
 
-	addRecentlyOpened(workspaces: (IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier)[], files: URI[]): void {
+	addRecentlyOpened(workspaces: Array<IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier>, files: URI[]): void {
 		if ((workspaces && workspaces.length > 0) || (files && files.length > 0)) {
 			const mru = this.getRecentlyOpened();
 
@@ -114,7 +114,7 @@ export class HistoryMainService implements IHistoryMainService {
 		}
 	}
 
-	removeFromRecentlyOpened(pathsToRemove: (IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier | URI | string)[]): void {
+	removeFromRecentlyOpened(pathsToRemove: Array<IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier | URI | string>): void {
 		const mru = this.getRecentlyOpened();
 		let update = false;
 
@@ -220,7 +220,7 @@ export class HistoryMainService implements IHistoryMainService {
 	}
 
 	getRecentlyOpened(currentWorkspace?: IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier, currentFiles?: IPath[]): IRecentlyOpened {
-		let workspaces: (IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier)[];
+		let workspaces: Array<IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier>;
 		let files: URI[];
 
 		// Get from storage
@@ -348,7 +348,7 @@ export class HistoryMainService implements IHistoryMainService {
 			// so we need to update our list of recent paths with the choice of the user to not add them again
 			// Also: Windows will not show our custom category at all if there is any entry which was removed
 			// by the user! See https://github.com/Microsoft/vscode/issues/15052
-			let toRemove: (ISingleFolderWorkspaceIdentifier | IWorkspaceIdentifier)[] = [];
+			let toRemove: Array<ISingleFolderWorkspaceIdentifier | IWorkspaceIdentifier> = [];
 			for (let item of app.getJumpListSettings().removedItems) {
 				const args = item.args;
 				if (args) {
@@ -369,13 +369,13 @@ export class HistoryMainService implements IHistoryMainService {
 			jumpList.push({
 				type: 'custom',
 				name: nls.localize('recentFolders', "Recent Workspaces"),
-				items: this.getRecentlyOpened().workspaces.slice(0, 7 /* limit number of entries here */).map(workspace => {
-					const title = this.labelService.getWorkspaceLabel(workspace);
+				items: arrays.coalesce(this.getRecentlyOpened().workspaces.slice(0, 7 /* limit number of entries here */).map(workspace => {
+					const title = getSimpleWorkspaceLabel(workspace, this.environmentService.workspacesHome);
 					let description;
 					let args;
 					if (isSingleFolderWorkspaceIdentifier(workspace)) {
 						const parentFolder = dirname(workspace);
-						description = parentFolder ? nls.localize('folderDesc', "{0} {1}", getBaseLabel(workspace), this.labelService.getUriLabel(parentFolder)) : getBaseLabel(workspace);
+						description = parentFolder ? nls.localize('folderDesc', "{0} {1}", getBaseLabel(workspace), getPathLabel(parentFolder, this.environmentService)) : getBaseLabel(workspace);
 						args = `--folder-uri "${workspace.toString()}"`;
 					} else {
 						description = nls.localize('codeWorkspace', "Code Workspace");
@@ -390,7 +390,7 @@ export class HistoryMainService implements IHistoryMainService {
 						iconPath: 'explorer.exe', // simulate folder icon
 						iconIndex: 0
 					};
-				}).filter(i => !!i)
+				}))
 			});
 		}
 
