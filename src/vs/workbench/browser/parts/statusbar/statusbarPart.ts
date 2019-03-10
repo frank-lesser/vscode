@@ -13,7 +13,7 @@ import { ICommandService } from 'vs/platform/commands/common/commands';
 import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
 import { Part } from 'vs/workbench/browser/part';
 import { IStatusbarRegistry, Extensions, IStatusbarItem } from 'vs/workbench/browser/parts/statusbar/statusbar';
-import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import { IInstantiationService, ServiceIdentifier } from 'vs/platform/instantiation/common/instantiation';
 import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
 import { StatusbarAlignment, IStatusbarService, IStatusbarEntry } from 'vs/platform/statusbar/common/statusbar';
 import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
@@ -27,27 +27,36 @@ import { Color } from 'vs/base/common/color';
 import { addClass, EventHelper, createStyleSheet, addDisposableListener } from 'vs/base/browser/dom';
 import { INotificationService } from 'vs/platform/notification/common/notification';
 import { IStorageService } from 'vs/platform/storage/common/storage';
+import { Parts, IWorkbenchLayoutService } from 'vs/workbench/services/layout/browser/layoutService';
+import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
 
 export class StatusbarPart extends Part implements IStatusbarService {
 
-	_serviceBrand: any;
+	_serviceBrand: ServiceIdentifier<any>;
 
 	private static readonly PRIORITY_PROP = 'statusbar-entry-priority';
 	private static readonly ALIGNMENT_PROP = 'statusbar-entry-alignment';
 
-	private statusItemsContainer: HTMLElement;
-	private statusMsgDispose: IDisposable;
+	//#region IView
 
+	readonly minimumWidth: number = 0;
+	readonly maximumWidth: number = Number.POSITIVE_INFINITY;
+	readonly minimumHeight: number = 22;
+	readonly maximumHeight: number = 22;
+
+	//#endregion
+
+	private statusMsgDispose: IDisposable;
 	private styleElement: HTMLStyleElement;
 
 	constructor(
-		id: string,
-		@IInstantiationService private instantiationService: IInstantiationService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IThemeService themeService: IThemeService,
-		@IWorkspaceContextService private contextService: IWorkspaceContextService,
-		@IStorageService storageService: IStorageService
+		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
+		@IStorageService storageService: IStorageService,
+		@IWorkbenchLayoutService layoutService: IWorkbenchLayoutService
 	) {
-		super(id, { hasTitle: false }, themeService, storageService);
+		super(Parts.STATUSBAR_PART, { hasTitle: false }, themeService, storageService, layoutService);
 
 		this.registerListeners();
 	}
@@ -59,16 +68,15 @@ export class StatusbarPart extends Part implements IStatusbarService {
 	addEntry(entry: IStatusbarEntry, alignment: StatusbarAlignment, priority: number = 0): IDisposable {
 
 		// Render entry in status bar
-		const el = this.doCreateStatusItem(alignment, priority, entry.showBeak ? 'has-beak' : void 0);
+		const el = this.doCreateStatusItem(alignment, priority, entry.showBeak ? 'has-beak' : undefined);
 		const item = this.instantiationService.createInstance(StatusBarEntryItem, entry);
 		const toDispose = item.render(el);
 
 		// Insert according to priority
-		const container = this.statusItemsContainer;
+		const container = this.element;
 		const neighbours = this.getEntries(alignment);
 		let inserted = false;
-		for (let i = 0; i < neighbours.length; i++) {
-			const neighbour = neighbours[i];
+		for (const neighbour of neighbours) {
 			const nPriority = Number(neighbour.getAttribute(StatusbarPart.PRIORITY_PROP));
 			if (
 				alignment === StatusbarAlignment.LEFT && nPriority < priority ||
@@ -96,7 +104,7 @@ export class StatusbarPart extends Part implements IStatusbarService {
 	private getEntries(alignment: StatusbarAlignment): HTMLElement[] {
 		const entries: HTMLElement[] = [];
 
-		const container = this.statusItemsContainer;
+		const container = this.element;
 		const children = container.children;
 		for (let i = 0; i < children.length; i++) {
 			const childElement = <HTMLElement>children.item(i);
@@ -109,7 +117,7 @@ export class StatusbarPart extends Part implements IStatusbarService {
 	}
 
 	createContentArea(parent: HTMLElement): HTMLElement {
-		this.statusItemsContainer = parent;
+		this.element = parent;
 
 		// Fill in initial items that were contributed from the registry
 		const registry = Registry.as<IStatusbarRegistry>(Extensions.Statusbar);
@@ -135,13 +143,13 @@ export class StatusbarPart extends Part implements IStatusbarService {
 			const el = this.doCreateStatusItem(descriptor.alignment, descriptor.priority);
 
 			this._register(item.render(el));
-			this.statusItemsContainer.appendChild(el);
+			this.element.appendChild(el);
 		}
 
-		return this.statusItemsContainer;
+		return this.element;
 	}
 
-	protected updateStyles(): void {
+	updateStyles(): void {
 		super.updateStyles();
 
 		const container = this.getContainer();
@@ -162,7 +170,7 @@ export class StatusbarPart extends Part implements IStatusbarService {
 			this.styleElement = createStyleSheet(container);
 		}
 
-		this.styleElement.innerHTML = `.monaco-workbench > .part.statusbar > .statusbar-item.has-beak:before { border-bottom-color: ${backgroundColor}; }`;
+		this.styleElement.innerHTML = `.monaco-workbench .part.statusbar > .statusbar-item.has-beak:before { border-bottom-color: ${backgroundColor}; }`;
 	}
 
 	private doCreateStatusItem(alignment: StatusbarAlignment, priority: number = 0, extraClass?: string): HTMLElement {
@@ -221,6 +229,16 @@ export class StatusbarPart extends Part implements IStatusbarService {
 
 		return dispose;
 	}
+
+	layout(width: number, height: number): void {
+		super.layoutContents(width, height);
+	}
+
+	toJSON(): object {
+		return {
+			type: Parts.STATUSBAR_PART
+		};
+	}
 }
 
 let manageExtensionAction: ManageExtensionAction;
@@ -228,13 +246,13 @@ class StatusBarEntryItem implements IStatusbarItem {
 
 	constructor(
 		private entry: IStatusbarEntry,
-		@ICommandService private commandService: ICommandService,
-		@IInstantiationService private instantiationService: IInstantiationService,
-		@INotificationService private notificationService: INotificationService,
-		@ITelemetryService private telemetryService: ITelemetryService,
-		@IContextMenuService private contextMenuService: IContextMenuService,
-		@IEditorService private editorService: IEditorService,
-		@IThemeService private themeService: IThemeService
+		@ICommandService private readonly commandService: ICommandService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@INotificationService private readonly notificationService: INotificationService,
+		@ITelemetryService private readonly telemetryService: ITelemetryService,
+		@IContextMenuService private readonly contextMenuService: IContextMenuService,
+		@IEditorService private readonly editorService: IEditorService,
+		@IThemeService private readonly themeService: IThemeService
 	) {
 		this.entry = entry;
 
@@ -286,7 +304,7 @@ class StatusBarEntryItem implements IStatusbarItem {
 
 				this.contextMenuService.showContextMenu({
 					getAnchor: () => el,
-					getActionsContext: () => this.entry.extensionId,
+					getActionsContext: () => this.entry.extensionId!.value,
 					getActions: () => [manageExtensionAction]
 				});
 			}));
@@ -324,7 +342,7 @@ class StatusBarEntryItem implements IStatusbarItem {
 class ManageExtensionAction extends Action {
 
 	constructor(
-		@ICommandService private commandService: ICommandService
+		@ICommandService private readonly commandService: ICommandService
 	) {
 		super('statusbar.manage.extension', nls.localize('manageExtension', "Manage Extension"));
 	}
@@ -337,21 +355,23 @@ class ManageExtensionAction extends Action {
 registerThemingParticipant((theme: ITheme, collector: ICssStyleCollector) => {
 	const statusBarItemHoverBackground = theme.getColor(STATUS_BAR_ITEM_HOVER_BACKGROUND);
 	if (statusBarItemHoverBackground) {
-		collector.addRule(`.monaco-workbench > .part.statusbar > .statusbar-item a:hover { background-color: ${statusBarItemHoverBackground}; }`);
+		collector.addRule(`.monaco-workbench .part.statusbar > .statusbar-item a:hover { background-color: ${statusBarItemHoverBackground}; }`);
 	}
 
 	const statusBarItemActiveBackground = theme.getColor(STATUS_BAR_ITEM_ACTIVE_BACKGROUND);
 	if (statusBarItemActiveBackground) {
-		collector.addRule(`.monaco-workbench > .part.statusbar > .statusbar-item a:active { background-color: ${statusBarItemActiveBackground}; }`);
+		collector.addRule(`.monaco-workbench .part.statusbar > .statusbar-item a:active { background-color: ${statusBarItemActiveBackground}; }`);
 	}
 
 	const statusBarProminentItemBackground = theme.getColor(STATUS_BAR_PROMINENT_ITEM_BACKGROUND);
 	if (statusBarProminentItemBackground) {
-		collector.addRule(`.monaco-workbench > .part.statusbar > .statusbar-item .status-bar-info { background-color: ${statusBarProminentItemBackground}; }`);
+		collector.addRule(`.monaco-workbench .part.statusbar > .statusbar-item .status-bar-info { background-color: ${statusBarProminentItemBackground}; }`);
 	}
 
 	const statusBarProminentItemHoverBackground = theme.getColor(STATUS_BAR_PROMINENT_ITEM_HOVER_BACKGROUND);
 	if (statusBarProminentItemHoverBackground) {
-		collector.addRule(`.monaco-workbench > .part.statusbar > .statusbar-item a.status-bar-info:hover { background-color: ${statusBarProminentItemHoverBackground}; }`);
+		collector.addRule(`.monaco-workbench .part.statusbar > .statusbar-item a.status-bar-info:hover { background-color: ${statusBarProminentItemHoverBackground}; }`);
 	}
 });
+
+registerSingleton(IStatusbarService, StatusbarPart);

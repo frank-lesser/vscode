@@ -146,7 +146,7 @@ class WordBasedCompletionItemProvider implements modes.CompletionItemProvider {
 
 class WorkerManager extends Disposable {
 
-	private _modelService: IModelService;
+	private readonly _modelService: IModelService;
 	private _editorWorkerClient: EditorWorkerClient | null;
 	private _lastWorkerUsedTime: number;
 
@@ -211,8 +211,8 @@ class WorkerManager extends Disposable {
 
 class EditorModelManager extends Disposable {
 
-	private _proxy: EditorSimpleWorkerImpl;
-	private _modelService: IModelService;
+	private readonly _proxy: EditorSimpleWorkerImpl;
+	private readonly _modelService: IModelService;
 	private _syncedModels: { [modelUrl: string]: IDisposable[]; } = Object.create(null);
 	private _syncedModelsLastUsedTime: { [modelUrl: string]: number; } = Object.create(null);
 
@@ -238,8 +238,7 @@ class EditorModelManager extends Disposable {
 	}
 
 	public esureSyncedResources(resources: URI[]): void {
-		for (let i = 0; i < resources.length; i++) {
-			let resource = resources[i];
+		for (const resource of resources) {
 			let resourceStr = resource.toString();
 
 			if (!this._syncedModels[resourceStr]) {
@@ -262,8 +261,8 @@ class EditorModelManager extends Disposable {
 			}
 		}
 
-		for (let i = 0; i < toRemove.length; i++) {
-			this._stopModelSync(toRemove[i]);
+		for (const e of toRemove) {
+			this._stopModelSync(e);
 		}
 	}
 
@@ -313,8 +312,8 @@ interface IWorkerClient<T> {
 }
 
 class SynchronousWorkerClient<T extends IDisposable> implements IWorkerClient<T> {
-	private _instance: T;
-	private _proxyObj: Promise<T>;
+	private readonly _instance: T;
+	private readonly _proxyObj: Promise<T>;
 
 	constructor(instance: T) {
 		this._instance = instance;
@@ -332,9 +331,9 @@ class SynchronousWorkerClient<T extends IDisposable> implements IWorkerClient<T>
 
 export class EditorWorkerClient extends Disposable {
 
-	private _modelService: IModelService;
+	private readonly _modelService: IModelService;
 	private _worker: IWorkerClient<EditorSimpleWorkerImpl> | null;
-	private _workerFactory: DefaultWorkerFactory;
+	private readonly _workerFactory: DefaultWorkerFactory;
 	private _modelManager: EditorModelManager | null;
 
 	constructor(modelService: IModelService, label: string | undefined) {
@@ -361,7 +360,7 @@ export class EditorWorkerClient extends Disposable {
 	}
 
 	protected _getProxy(): Promise<EditorSimpleWorkerImpl> {
-		return this._getOrCreateWorker().getProxyObject().then(void 0, (err) => {
+		return this._getOrCreateWorker().getProxyObject().then(undefined, (err) => {
 			logOnceWebWorkerWarning(err);
 			this._worker = new SynchronousWorkerClient(new EditorSimpleWorkerImpl(null));
 			return this._getOrCreateWorker().getProxyObject();

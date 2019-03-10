@@ -36,8 +36,8 @@ export class LanguagesRegistry extends Disposable {
 	private readonly _warnOnOverwrite: boolean;
 
 	private _nextLanguageId2: number;
-	private _languageIdToLanguage: string[];
-	private _languageToLanguageId: { [id: string]: number; };
+	private readonly _languageIdToLanguage: string[];
+	private readonly _languageToLanguageId: { [id: string]: number; };
 
 	private _languages: { [id: string]: IResolvedLanguage; };
 	private _mimeTypesMap: { [mimeType: string]: LanguageIdentifier; };
@@ -76,8 +76,8 @@ export class LanguagesRegistry extends Disposable {
 
 	_registerLanguages(desc: ILanguageExtensionPoint[]): void {
 
-		for (let i = 0; i < desc.length; i++) {
-			this._registerLanguage(desc[i]);
+		for (const d of desc) {
+			this._registerLanguage(d);
 		}
 
 		// Rebuild fast path maps
@@ -201,8 +201,7 @@ export class LanguagesRegistry extends Disposable {
 		}
 
 		if (langAliases !== null) {
-			for (let i = 0; i < langAliases.length; i++) {
-				const langAlias = langAliases[i];
+			for (const langAlias of langAliases) {
 				if (!langAlias || langAlias.length === 0) {
 					continue;
 				}
@@ -271,7 +270,7 @@ export class LanguagesRegistry extends Disposable {
 		return (language.mimetypes[0] || null);
 	}
 
-	public extractModeIds(commaSeparatedMimetypesOrCommaSeparatedIds: string): string[] {
+	public extractModeIds(commaSeparatedMimetypesOrCommaSeparatedIds: string | undefined): string[] {
 		if (!commaSeparatedMimetypesOrCommaSeparatedIds) {
 			return [];
 		}
