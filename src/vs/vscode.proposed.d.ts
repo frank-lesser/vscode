@@ -84,50 +84,61 @@ declare module 'vscode' {
 
 	//#region Joh - selection range provider
 
-	export class SelectionRangeKind {
-
-		/**
-		 * Empty Kind.
-		 */
-		static readonly Empty: SelectionRangeKind;
-
-		/**
-		 * The statement kind, its value is `statement`, possible extensions can be
-		 * `statement.if` etc
-		 */
-		static readonly Statement: SelectionRangeKind;
-
-		/**
-		 * The declaration kind, its value is `declaration`, possible extensions can be
-		 * `declaration.function`, `declaration.class` etc.
-		 */
-		static readonly Declaration: SelectionRangeKind;
-
-		readonly value: string;
-
-		private constructor(value: string);
-
-		append(value: string): SelectionRangeKind;
-	}
-
+	/**
+	 * A selection range represents a part of a selection hierarchy. A selection range
+	 * may have a parent selection range that contains it.
+	 */
 	export class SelectionRange {
-		kind: SelectionRangeKind;
+
+		/**
+		 * The [range](#Range) of this selection range.
+		 */
 		range: Range;
-		constructor(range: Range, kind: SelectionRangeKind);
+
+		/**
+		 * The parent selection range containing this range.
+		 */
+		parent?: SelectionRange;
+
+		/**
+		 * Creates a new selection range.
+		 *
+		 * @param range The range of the selection range.
+		 * @param parent The parent of the selection range.
+		 */
+		constructor(range: Range, parent?: SelectionRange);
 	}
 
 	export interface SelectionRangeProvider {
 		/**
-		 * Provide selection ranges for the given positions. Selection ranges should be computed individually and
-		 * independend for each postion. The editor will merge and deduplicate ranges but providers must return sequences
-		 * of ranges (per position) where a range must [contain](#Range.contains) and subsequent ranges.
+		 * Provide selection ranges for the given positions.
 		 *
-		 * todo@joh
+		 * Selection ranges should be computed individually and independend for each postion. The editor will merge
+		 * and deduplicate ranges but providers must return hierarchies of selection ranges so that a range
+		 * is [contained](#Range.contains) by its parent.
+		 *
+		 * @param document The document in which the command was invoked.
+		 * @param positions The positions at which the command was invoked.
+		 * @param token A cancellation token.
+		 * @return Selection ranges or a thenable that resolves to such. The lack of a result can be
+		 * signaled by returning `undefined` or `null`.
 		 */
-		provideSelectionRanges(document: TextDocument, positions: Position[], token: CancellationToken): ProviderResult<SelectionRange[][]>;
+		provideSelectionRanges(document: TextDocument, positions: Position[], token: CancellationToken): ProviderResult<SelectionRange[]>;
 	}
 
 	export namespace languages {
+
+		/**
+		 * Register a selection range provider.
+		 *
+		 * Multiple providers can be registered for a language. In that case providers are asked in
+		 * parallel and the results are merged. A failing provider (rejected promise or exception) will
+		 * not cause a failure of the whole operation.
+		 *
+		 * @param selector A selector that defines the documents this provider is applicable to.
+		 * @param provider A selection range provider.
+		 * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
+		 */
 		export function registerSelectionRangeProvider(selector: DocumentSelector, provider: SelectionRangeProvider): Disposable;
 	}
 
@@ -136,7 +147,6 @@ declare module 'vscode' {
 	//#region Joh - read/write in chunks
 
 	export interface FileSystemProvider {
-		seperator?: '/' | '\\';
 		open?(resource: Uri, options: { create: boolean }): number | Thenable<number>;
 		close?(fd: number): void | Thenable<void>;
 		read?(fd: number, pos: number, data: Uint8Array, offset: number, length: number): number | Thenable<number>;
@@ -763,7 +773,7 @@ declare module 'vscode' {
 		range: Range;
 
 		/**
-		 * Label describing the [Comment Thread](#CommentThread)
+		 * The human-readable label describing the [Comment Thread](#CommentThread)
 		 */
 		label?: string;
 
@@ -773,28 +783,38 @@ declare module 'vscode' {
 		comments: Comment[];
 
 		/**
+		 * Optional accept input command
+		 *
 		 * `acceptInputCommand` is the default action rendered on Comment Widget, which is always placed rightmost.
-		 * It will be executed when users submit the comment from keyboard shortcut.
-		 * This action is disabled when the comment editor is empty.
+		 * This command will be invoked when users the user accepts the value in the comment editor.
+		 * This command will disabled when the comment editor is empty.
 		 */
 		acceptInputCommand?: Command;
 
 		/**
+		 * Optional additonal commands.
+		 *
 		 * `additionalCommands` are the secondary actions rendered on Comment Widget.
 		 */
 		additionalCommands?: Command[];
 
 		/**
-		 * Whether the thread should be collapsed or expanded when opening the document. Defaults to Collapsed.
+		 * Whether the thread should be collapsed or expanded when opening the document.
+		 * Defaults to Collapsed.
 		 */
 		collapsibleState?: CommentThreadCollapsibleState;
+
+		/**
+		 * Dispose this comment thread.
+		 * Once disposed, the comment thread will be removed from visible text editors and Comments Panel.
+		 */
 		dispose?(): void;
 	}
 
 	/**
 	 * A comment is displayed within the editor or the Comments Panel, depending on how it is provided.
 	 */
-	interface Comment {
+	export interface Comment {
 		/**
 		 * The id of the comment
 		 */
@@ -806,7 +826,8 @@ declare module 'vscode' {
 		body: MarkdownString;
 
 		/**
-		 * Label describing the [Comment](#Comment)
+		 * Optional label describing the [Comment](#Comment)
+		 * Label will be rendered next to userName if exists.
 		 */
 		label?: string;
 
@@ -819,7 +840,6 @@ declare module 'vscode' {
 		 * The icon path for the user who created the comment
 		 */
 		userIconPath?: Uri;
-
 
 		/**
 		 * @deprecated Use userIconPath instead. The avatar src of the user who created the comment
@@ -847,17 +867,40 @@ declare module 'vscode' {
 		canDelete?: boolean;
 
 		/**
+		 * @deprecated
 		 * The command to be executed if the comment is selected in the Comments Panel
 		 */
 		command?: Command;
 
+		/**
+		 * The command to be executed if the comment is selected in the Comments Panel
+		 */
+		selectCommand?: Command;
+
+		/**
+		 * The command to be executed when users try to save the edits to the comment
+		 */
 		editCommand?: Command;
+
+		/**
+		 * The command to be executed when users try to delete the comment
+		 */
 		deleteCommand?: Command;
 
+		/**
+		 * Deprecated
+		 */
 		isDraft?: boolean;
+
+		/**
+		 * Proposed Comment Reaction
+		 */
 		commentReactions?: CommentReaction[];
 	}
 
+	/**
+	 * Deprecated
+	 */
 	export interface CommentThreadChangedEvent {
 		/**
 		 * Added comment threads.
@@ -880,6 +923,9 @@ declare module 'vscode' {
 		readonly inDraftMode: boolean;
 	}
 
+	/**
+	 * Comment Reactions
+	 */
 	interface CommentReaction {
 		readonly label?: string;
 		readonly iconPath?: string | Uri;
@@ -950,32 +996,76 @@ declare module 'vscode' {
 		onDidChangeCommentThreads: Event<CommentThreadChangedEvent>;
 	}
 
+	/**
+	 * The comment input box in Comment Widget.
+	 */
 	export interface CommentInputBox {
-
 		/**
-		 * Setter and getter for the contents of the input box.
+		 * Setter and getter for the contents of the comment input box.
 		 */
 		value: string;
 	}
 
-	export interface CommentController {
-		readonly id: string;
-		readonly label: string;
+	export interface CommentReactionProvider {
+		availableReactions: CommentReaction[];
+		toggleReaction?(document: TextDocument, comment: Comment, reaction: CommentReaction): Promise<void>;
+	}
+
+	export interface CommentingRangeProvider {
 		/**
-		 * The active (focused) comment input box.
+		 * Provide a list of ranges which allow new comment threads creation or null for a given document
+		 */
+		provideCommentingRanges(document: TextDocument, token: CancellationToken): ProviderResult<Range[]>;
+	}
+
+	export interface EmptyCommentThreadFactory {
+		/**
+		 * The method `createEmptyCommentThread` is called when users attempt to create new comment thread from the gutter or command palette.
+		 * Extensions still need to call `createCommentThread` inside this call when appropriate.
+		 */
+		createEmptyCommentThread(document: TextDocument, range: Range): ProviderResult<void>;
+	}
+
+	export interface CommentController {
+		/**
+		 * The id of this comment controller.
+		 */
+		readonly id: string;
+
+		/**
+		 * The human-readable label of this comment controller.
+		 */
+		readonly label: string;
+
+		/**
+		 * The active (focused) [comment input box](#CommentInputBox).
 		 */
 		readonly inputBox?: CommentInputBox;
-		createCommentThread(id: string, resource: Uri, range: Range): CommentThread;
+
 		/**
-		 * Provide a list [ranges](#Range) which support commenting to any given resource uri.
-		 *
-		 * @param uri The uri of the resource open in a text editor.
-		 * @param callback, a handler called when users attempt to create a new comment thread, either from the gutter or command palette
-		 * @param token A cancellation token.
-		 * @return A thenable that resolves to a list of commenting ranges or null and undefined if the provider
-		 * does not want to participate or was cancelled.
+		 * Create a [CommentThread](#CommentThread)
 		 */
-		registerCommentingRangeProvider(provider: (document: TextDocument, token: CancellationToken) => ProviderResult<Range[]>, callback: (document: TextDocument, range: Range) => void): void;
+		createCommentThread(id: string, resource: Uri, range: Range, comments: Comment[]): CommentThread;
+
+		/**
+		 * Optional commenting range provider.
+		 * Provide a list [ranges](#Range) which support commenting to any given resource uri.
+		 */
+		commentingRangeProvider?: CommentingRangeProvider;
+
+		/**
+		 * Optional new comment thread factory.
+		 */
+		emptyCommentThreadFactory?: EmptyCommentThreadFactory;
+
+		/**
+		 * Optional reaction provider
+		 */
+		reactionProvider?: CommentReactionProvider;
+
+		/**
+		 * Dispose this comment controller.
+		 */
 		dispose(): void;
 	}
 
