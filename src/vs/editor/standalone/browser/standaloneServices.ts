@@ -145,8 +145,6 @@ export module StaticServices {
 
 	export const markerDecorationsService = define(IMarkerDecorationsService, (o) => new MarkerDecorationsService(modelService.get(o), markerService.get(o)));
 
-	export const editorWorkerService = define(IEditorWorkerService, (o) => new EditorWorkerServiceImpl(modelService.get(o), resourceConfigurationService.get(o)));
-
 	export const standaloneThemeService = define(IStandaloneThemeService, () => new StandaloneThemeServiceImpl());
 
 	export const codeEditorService = define(ICodeEditorService, (o) => new StandaloneCodeEditorServiceImpl(standaloneThemeService.get(o)));
@@ -156,6 +154,8 @@ export module StaticServices {
 	export const storageService = define(IStorageService, () => new InMemoryStorageService());
 
 	export const logService = define(ILogService, () => new NullLogService());
+
+	export const editorWorkerService = define(IEditorWorkerService, (o) => new EditorWorkerServiceImpl(modelService.get(o), resourceConfigurationService.get(o), logService.get(o)));
 
 	export const suggestMemoryService = define(ISuggestMemoryService, (o) => new SuggestMemoryService(storageService.get(o), configurationService.get(o)));
 
@@ -202,7 +202,12 @@ export class DynamicStandaloneServices extends Disposable {
 
 		let contextViewService = ensure(IContextViewService, () => this._register(new ContextViewService(layoutService)));
 
-		ensure(IContextMenuService, () => this._register(new ContextMenuService(layoutService, telemetryService, notificationService, contextViewService, keybindingService, themeService)));
+		ensure(IContextMenuService, () => {
+			const contextMenuService = new ContextMenuService(telemetryService, notificationService, contextViewService, keybindingService, themeService);
+			contextMenuService.configure({ blockMouse: false }); // we do not want that in the standalone editor
+
+			return this._register(contextMenuService);
+		});
 
 		ensure(IMenuService, () => new MenuService(commandService));
 

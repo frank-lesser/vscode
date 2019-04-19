@@ -25,7 +25,7 @@ import { ITitleService } from 'vs/workbench/services/title/common/titleService';
 import { IInstantiationService, ServicesAccessor, ServiceIdentifier } from 'vs/platform/instantiation/common/instantiation';
 import { LifecyclePhase, StartupKind, ILifecycleService } from 'vs/platform/lifecycle/common/lifecycle';
 import { IWindowService, IPath, MenuBarVisibility, getTitleBarStyle } from 'vs/platform/windows/common/windows';
-import { IEnvironmentService } from 'vs/platform/environment/common/environment';
+import { IWorkbenchEnvironmentService } from 'vs/workbench/services/environment/common/environmentService';
 import { IEditorService, IResourceEditor } from 'vs/workbench/services/editor/common/editorService';
 import { IEditorGroupsService } from 'vs/workbench/services/editor/common/editorGroupsService';
 import { Sizing, Direction, Grid, View } from 'vs/base/browser/ui/grid/grid';
@@ -57,7 +57,7 @@ enum Storage {
 	CENTERED_LAYOUT_ENABLED = 'workbench.centerededitorlayout.active',
 }
 
-export class Layout extends Disposable implements IWorkbenchLayoutService {
+export abstract class Layout extends Disposable implements IWorkbenchLayoutService {
 
 	_serviceBrand: ServiceIdentifier<any>;
 
@@ -76,8 +76,6 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
 	private _container: HTMLElement = document.createElement('div');
 	get container(): HTMLElement { return this._container; }
 
-	get hasWorkbench(): boolean { return true; }
-
 	private parts: Map<string, Part> = new Map<string, Part>();
 
 	private workbenchGrid: Grid<View> | WorkbenchLegacyLayout;
@@ -91,7 +89,7 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
 	private editorPartView: View;
 	private statusBarPartView: View;
 
-	private environmentService: IEnvironmentService;
+	private environmentService: IWorkbenchEnvironmentService;
 	private configurationService: IConfigurationService;
 	private lifecycleService: ILifecycleService;
 	private storageService: IStorageService;
@@ -163,12 +161,13 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
 	protected initLayout(accessor: ServicesAccessor): void {
 
 		// Services
-		this.environmentService = accessor.get(IEnvironmentService);
+		this.environmentService = accessor.get(IWorkbenchEnvironmentService);
 		this.configurationService = accessor.get(IConfigurationService);
 		this.lifecycleService = accessor.get(ILifecycleService);
 		this.windowService = accessor.get(IWindowService);
 		this.contextService = accessor.get(IWorkspaceContextService);
 		this.storageService = accessor.get(IStorageService);
+		this.backupFileService = accessor.get(IBackupFileService);
 
 		// Parts
 		this.editorService = accessor.get(IEditorService);
@@ -184,15 +183,6 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
 
 		// State
 		this.initLayoutState(accessor.get(ILifecycleService));
-	}
-
-	protected getPart(key: Parts): Part {
-		const part = this.parts.get(key);
-		if (!part) {
-			throw new Error(`Unknown part ${key}`);
-		}
-
-		return part;
 	}
 
 	private registerLayoutListeners(): void {
@@ -400,7 +390,7 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
 	}
 
 	private resolveEditorsToOpen(): Promise<IResourceEditor[]> | IResourceEditor[] {
-		const configuration = this.windowService.getConfiguration();
+		const configuration = this.environmentService.configuration;
 		const hasInitialFilesToOpen = this.hasInitialFilesToOpen();
 
 		// Only restore editors if we are not instructed to open files initially
@@ -429,8 +419,7 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
 
 		// Empty workbench
 		else if (this.contextService.getWorkbenchState() === WorkbenchState.EMPTY && this.configurationService.inspect('workbench.startupEditor').value === 'newUntitledFile') {
-			const isEmpty = this.editorGroupService.count === 1 && this.editorGroupService.activeGroup.count === 0;
-			if (!isEmpty) {
+			if (this.editorGroupService.willRestoreEditors) {
 				return []; // do not open any empty untitled file if we restored editors from previous session
 			}
 
@@ -447,7 +436,7 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
 	}
 
 	private hasInitialFilesToOpen(): boolean {
-		const configuration = this.windowService.getConfiguration();
+		const configuration = this.environmentService.configuration;
 
 		return !!(
 			(configuration.filesToCreate && configuration.filesToCreate.length > 0) ||
@@ -468,9 +457,9 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
 
 			let input: IResourceInput | IUntitledResourceInput;
 			if (isNew) {
-				input = { filePath: resource.fsPath, options: { pinned: true } } as IUntitledResourceInput;
+				input = { filePath: resource.fsPath, options: { pinned: true } };
 			} else {
-				input = { resource, options: { pinned: true }, forceFile: true } as IResourceInput;
+				input = { resource, options: { pinned: true }, forceFile: true };
 			}
 
 			if (!isNew && typeof p.lineNumber === 'number') {
@@ -493,6 +482,15 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
 
 	registerPart(part: Part): void {
 		this.parts.set(part.getId(), part);
+	}
+
+	protected getPart(key: Parts): Part {
+		const part = this.parts.get(key);
+		if (!part) {
+			throw new Error(`Unknown part ${key}`);
+		}
+
+		return part;
 	}
 
 	isRestored(): boolean {
@@ -1138,6 +1136,4 @@ export class Layout extends Disposable implements IWorkbenchLayoutService {
 
 		this.disposed = true;
 	}
-
-	//#endregion
 }
