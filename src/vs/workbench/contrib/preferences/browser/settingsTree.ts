@@ -403,7 +403,9 @@ export abstract class AbstractSettingRenderer extends Disposable implements ITre
 
 		template.descriptionElement.innerHTML = '';
 		if (element.setting.descriptionIsMarkdown) {
-			const renderedDescription = this.renderDescriptionMarkdown(element, element.description, template.toDispose);
+			const disposables = new DisposableStore();
+			template.toDispose.push(disposables);
+			const renderedDescription = this.renderDescriptionMarkdown(element, element.description, disposables);
 			template.descriptionElement.appendChild(renderedDescription);
 		} else {
 			template.descriptionElement.innerText = element.description;
@@ -447,7 +449,7 @@ export abstract class AbstractSettingRenderer extends Disposable implements ITre
 
 	}
 
-	private renderDescriptionMarkdown(element: SettingsTreeSettingElement, text: string, disposeables: IDisposable[]): HTMLElement {
+	private renderDescriptionMarkdown(element: SettingsTreeSettingElement, text: string, disposeables: DisposableStore): HTMLElement {
 		// Rewrite `#editor.fontSize#` to link format
 		text = fixSettingLinks(text);
 
@@ -700,17 +702,16 @@ export class SettingExcludeRenderer extends AbstractSettingRenderer implements I
 				}
 			}
 
-			const sortKeys = (obj: Object) => {
-				const keyArray = Object.keys(obj)
-					.map(key => ({ key, val: obj[key] }))
-					.sort((a, b) => a.key.localeCompare(b.key));
+			function sortKeys<T extends object>(obj: T) {
+				const sortedKeys = Object.keys(obj)
+					.sort((a, b) => a.localeCompare(b)) as Array<keyof T>;
 
-				const retVal = {};
-				keyArray.forEach(pair => {
-					retVal[pair.key] = pair.val;
-				});
+				const retVal: Partial<T> = {};
+				for (const key of sortedKeys) {
+					retVal[key] = obj[key];
+				}
 				return retVal;
-			};
+			}
 
 			this._onDidChangeSetting.fire({
 				key: template.context.setting.key,
@@ -1414,9 +1415,9 @@ class CopySettingIdAction extends Action {
 		super(CopySettingIdAction.ID, CopySettingIdAction.LABEL);
 	}
 
-	run(context: SettingsTreeSettingElement): Promise<void> {
+	async run(context: SettingsTreeSettingElement): Promise<void> {
 		if (context) {
-			this.clipboardService.writeText(context.setting.key);
+			await this.clipboardService.writeText(context.setting.key);
 		}
 
 		return Promise.resolve(undefined);
@@ -1433,10 +1434,10 @@ class CopySettingAsJSONAction extends Action {
 		super(CopySettingAsJSONAction.ID, CopySettingAsJSONAction.LABEL);
 	}
 
-	run(context: SettingsTreeSettingElement): Promise<void> {
+	async run(context: SettingsTreeSettingElement): Promise<void> {
 		if (context) {
 			const jsonResult = `"${context.setting.key}": ${JSON.stringify(context.value, undefined, '  ')}`;
-			this.clipboardService.writeText(jsonResult);
+			await this.clipboardService.writeText(jsonResult);
 		}
 
 		return Promise.resolve(undefined);

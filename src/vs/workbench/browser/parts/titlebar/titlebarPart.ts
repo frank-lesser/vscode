@@ -15,7 +15,7 @@ import { StandardMouseEvent } from 'vs/base/browser/mouseEvent';
 import { IAction, Action } from 'vs/base/common/actions';
 import { IConfigurationService, IConfigurationChangeEvent } from 'vs/platform/configuration/common/configuration';
 import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
-import { IDisposable, dispose } from 'vs/base/common/lifecycle';
+import { DisposableStore } from 'vs/base/common/lifecycle';
 import * as nls from 'vs/nls';
 import { EditorInput, toResource, Verbosity, SideBySideEditor } from 'vs/workbench/common/editor';
 import { IWorkbenchEnvironmentService } from 'vs/workbench/services/environment/common/environmentService';
@@ -27,7 +27,7 @@ import { URI } from 'vs/base/common/uri';
 import { Color } from 'vs/base/common/color';
 import { trim } from 'vs/base/common/strings';
 import { EventType, EventHelper, Dimension, isAncestor, hide, show, removeClass, addClass, append, $, addDisposableListener, runAtThisOrScheduleAtNextAnimationFrame } from 'vs/base/browser/dom';
-import { MenubarControl } from 'vs/workbench/browser/parts/titlebar/menubarControl';
+import { MenubarControl, NativeMenubarControl, CustomMenubarControl } from 'vs/workbench/browser/parts/titlebar/menubarControl';
 import { IInstantiationService, ServiceIdentifier } from 'vs/platform/instantiation/common/instantiation';
 import { template, getBaseLabel } from 'vs/base/common/labels';
 import { ILabelService } from 'vs/platform/label/common/label';
@@ -75,8 +75,8 @@ export class TitlebarPart extends Part implements ITitleService {
 
 	private isInactive: boolean;
 
-	private properties: ITitleProperties;
-	private activeEditorListeners: IDisposable[];
+	private readonly properties: ITitleProperties = { isPure: true, isAdmin: false };
+	private readonly activeEditorListeners = this._register(new DisposableStore());
 
 	private titleUpdater: RunOnceScheduler = this._register(new RunOnceScheduler(() => this.doUpdateTitle(), 0));
 
@@ -95,9 +95,6 @@ export class TitlebarPart extends Part implements ITitleService {
 		@IWorkbenchLayoutService layoutService: IWorkbenchLayoutService
 	) {
 		super(Parts.TITLEBAR_PART, { hasTitle: false }, themeService, storageService, layoutService);
-
-		this.properties = { isPure: true, isAdmin: false };
-		this.activeEditorListeners = [];
 
 		this.registerListeners();
 	}
@@ -162,8 +159,7 @@ export class TitlebarPart extends Part implements ITitleService {
 	private onActiveEditorChange(): void {
 
 		// Dispose old listeners
-		dispose(this.activeEditorListeners);
-		this.activeEditorListeners = [];
+		this.activeEditorListeners.clear();
 
 		// Calculate New Window Title
 		this.titleUpdater.schedule();
@@ -171,8 +167,8 @@ export class TitlebarPart extends Part implements ITitleService {
 		// Apply listener for dirty and label changes
 		const activeEditor = this.editorService.activeEditor;
 		if (activeEditor instanceof EditorInput) {
-			this.activeEditorListeners.push(activeEditor.onDidChangeDirty(() => this.titleUpdater.schedule()));
-			this.activeEditorListeners.push(activeEditor.onDidChangeLabel(() => this.titleUpdater.schedule()));
+			this.activeEditorListeners.add(activeEditor.onDidChangeDirty(() => this.titleUpdater.schedule()));
+			this.activeEditorListeners.add(activeEditor.onDidChangeLabel(() => this.titleUpdater.schedule()));
 		}
 
 		// Represented File Name
@@ -337,15 +333,18 @@ export class TitlebarPart extends Part implements ITitleService {
 		}
 
 		// Menubar: the menubar part which is responsible for populating both the custom and native menubars
-		this.menubarPart = this.instantiationService.createInstance(MenubarControl);
-		this.menubar = append(this.element, $('div.menubar'));
-		this.menubar.setAttribute('role', 'menubar');
+		if ((isMacintosh && !isWeb) || getTitleBarStyle(this.configurationService, this.environmentService) === 'native') {
+			this.menubarPart = this.instantiationService.createInstance(NativeMenubarControl);
+		} else {
+			const customMenubarControl = this.instantiationService.createInstance(CustomMenubarControl);
+			this.menubarPart = customMenubarControl;
+			this.menubar = append(this.element, $('div.menubar'));
+			this.menubar.setAttribute('role', 'menubar');
 
-		this.menubarPart.create(this.menubar);
+			customMenubarControl.create(this.menubar);
 
-		if (!isMacintosh || isWeb) {
-			this._register(this.menubarPart.onVisibilityChange(e => this.onMenubarVisibilityChanged(e)));
-			this._register(this.menubarPart.onFocusStateChange(e => this.onMenubarFocusChanged(e)));
+			this._register(customMenubarControl.onVisibilityChange(e => this.onMenubarVisibilityChanged(e)));
+			this._register(customMenubarControl.onFocusStateChange(e => this.onMenubarFocusChanged(e)));
 		}
 
 		// Title
@@ -495,9 +494,9 @@ export class TitlebarPart extends Part implements ITitleService {
 	private onUpdateAppIconDragBehavior() {
 		const setting = this.configurationService.getValue('window.doubleClickIconToClose');
 		if (setting) {
-			this.appIcon.style['-webkit-app-region'] = 'no-drag';
+			(this.appIcon.style as any)['-webkit-app-region'] = 'no-drag';
 		} else {
-			this.appIcon.style['-webkit-app-region'] = 'drag';
+			(this.appIcon.style as any)['-webkit-app-region'] = 'drag';
 		}
 	}
 
@@ -548,7 +547,7 @@ export class TitlebarPart extends Part implements ITitleService {
 	}
 
 	private adjustTitleMarginToCenter(): void {
-		if (!isMacintosh || isWeb) {
+		if (this.menubarPart instanceof CustomMenubarControl) {
 			const leftMarker = (this.appIcon ? this.appIcon.clientWidth : 0) + this.menubar.clientWidth + 10;
 			const rightMarker = this.element.clientWidth - (this.windowControls ? this.windowControls.clientWidth : 0) - 10;
 
@@ -589,7 +588,7 @@ export class TitlebarPart extends Part implements ITitleService {
 
 			runAtThisOrScheduleAtNextAnimationFrame(() => this.adjustTitleMarginToCenter());
 
-			if (this.menubarPart) {
+			if (this.menubarPart instanceof CustomMenubarControl) {
 				const menubarDimension = new Dimension(0, dimension.height);
 				this.menubarPart.layout(menubarDimension);
 			}

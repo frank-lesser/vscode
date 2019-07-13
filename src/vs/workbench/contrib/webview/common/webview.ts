@@ -4,12 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event } from 'vs/base/common/event';
+import { IDisposable } from 'vs/base/common/lifecycle';
 import { URI } from 'vs/base/common/uri';
+import * as modes from 'vs/editor/common/modes';
+import { RawContextKey } from 'vs/platform/contextkey/common/contextkey';
 import { ExtensionIdentifier } from 'vs/platform/extensions/common/extensions';
 import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { RawContextKey } from 'vs/platform/contextkey/common/contextkey';
-import * as modes from 'vs/editor/common/modes';
-import { IDisposable } from 'vs/base/common/lifecycle';
+import * as nls from 'vs/nls';
 
 /**
  * Set when the find widget in a webview is visible.
@@ -25,10 +26,13 @@ export interface IWebviewService {
 	_serviceBrand: any;
 
 	createWebview(
+		id: string,
 		options: WebviewOptions,
 		contentOptions: WebviewContentOptions,
 	): Webview;
 }
+
+export const WebviewResourceScheme = 'vscode-resource';
 
 export interface WebviewOptions {
 	readonly allowSvgs?: boolean;
@@ -69,15 +73,10 @@ export interface Webview extends IDisposable {
 	layout(): void;
 	mountTo(parent: HTMLElement): void;
 	focus(): void;
-
 	reload(): void;
-	selectAll(): void;
-	copy(): void;
-	paste(): void;
-	cut(): void;
-	undo(): void;
-	redo(): void;
 
 	showFind(): void;
 	hideFind(): void;
 }
+
+export const webviewDeveloperCategory = nls.localize('developer', "Developer");
