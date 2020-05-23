@@ -15,15 +15,18 @@ import { ISelection } from 'vs/editor/common/core/selection';
 import { IDecorationOptions, IDecorationRenderOptions, ILineChange } from 'vs/editor/common/editorCommon';
 import { ISingleEditOperation } from 'vs/editor/common/model';
 import { CommandsRegistry } from 'vs/platform/commands/common/commands';
-import { IEditorOptions, ITextEditorOptions } from 'vs/platform/editor/common/editor';
+import { IEditorOptions, ITextEditorOptions, IResourceEditorInput, EditorActivation } from 'vs/platform/editor/common/editor';
 import { ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
 import { IOpenerService } from 'vs/platform/opener/common/opener';
 import { MainThreadDocumentsAndEditors } from 'vs/workbench/api/browser/mainThreadDocumentsAndEditors';
 import { MainThreadTextEditor } from 'vs/workbench/api/browser/mainThreadEditor';
-import { ExtHostContext, ExtHostEditorsShape, IApplyEditsOptions, IExtHostContext, ITextDocumentShowOptions, ITextEditorConfigurationUpdate, ITextEditorPositionData, IUndoStopOptions, MainThreadTextEditorsShape, TextEditorRevealType, WorkspaceEditDto, reviveWorkspaceEditDto } from 'vs/workbench/api/common/extHost.protocol';
+import { ExtHostContext, ExtHostEditorsShape, IApplyEditsOptions, IExtHostContext, ITextDocumentShowOptions, ITextEditorConfigurationUpdate, ITextEditorPositionData, IUndoStopOptions, MainThreadTextEditorsShape, TextEditorRevealType, IWorkspaceEditDto, reviveWorkspaceEditDto } from 'vs/workbench/api/common/extHost.protocol';
 import { EditorViewColumn, editorGroupToViewColumn, viewColumnToEditorGroup } from 'vs/workbench/api/common/shared/editor';
 import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
 import { IEditorGroupsService } from 'vs/workbench/services/editor/common/editorGroupsService';
+import { openEditorWith } from 'vs/workbench/contrib/files/common/openWith';
+import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
+import { IQuickInputService } from 'vs/platform/quickinput/common/quickInput';
 
 export class MainThreadTextEditors implements MainThreadTextEditorsShape {
 
@@ -101,10 +104,10 @@ export class MainThreadTextEditors implements MainThreadTextEditorsShape {
 
 	private _getTextEditorPositionData(): ITextEditorPositionData {
 		const result: ITextEditorPositionData = Object.create(null);
-		for (let workbenchEditor of this._editorService.visibleControls) {
-			const id = this._documentsAndEditors.findTextEditorIdFor(workbenchEditor);
+		for (let editorPane of this._editorService.visibleEditorPanes) {
+			const id = this._documentsAndEditors.findTextEditorIdFor(editorPane);
 			if (id) {
-				result[id] = editorGroupToViewColumn(this._editorGroupService, workbenchEditor.group);
+				result[id] = editorGroupToViewColumn(this._editorGroupService, editorPane.group);
 			}
 		}
 		return result;
@@ -112,112 +115,121 @@ export class MainThreadTextEditors implements MainThreadTextEditorsShape {
 
 	// --- from extension host process
 
-	$tryShowTextDocument(resource: UriComponents, options: ITextDocumentShowOptions): Promise<string | undefined> {
+	async $tryShowTextDocument(resource: UriComponents, options: ITextDocumentShowOptions): Promise<string | undefined> {
 		const uri = URI.revive(resource);
 
 		const editorOptions: ITextEditorOptions = {
 			preserveFocus: options.preserveFocus,
 			pinned: options.pinned,
-			selection: options.selection
+			selection: options.selection,
+			// preserve pre 1.38 behaviour to not make group active when preserveFocus: true
+			// but make sure to restore the editor to fix https://github.com/microsoft/vscode/issues/79633
+			activation: options.preserveFocus ? EditorActivation.RESTORE : undefined,
+			ignoreOverrides: true
 		};
 
-		const input = {
+		const input: IResourceEditorInput = {
 			resource: uri,
 			options: editorOptions
 		};
 
-		return this._editorService.openEditor(input, viewColumnToEditorGroup(this._editorGroupService, options.position)).then(editor => {
-			if (!editor) {
-				return undefined;
-			}
-			return this._documentsAndEditors.findTextEditorIdFor(editor);
-		});
+		const editor = await this._editorService.openEditor(input, viewColumnToEditorGroup(this._editorGroupService, options.position));
+		if (!editor) {
+			return undefined;
+		}
+		return this._documentsAndEditors.findTextEditorIdFor(editor);
 	}
 
-	$tryShowEditor(id: string, position?: EditorViewColumn): Promise<void> {
+	async $tryShowEditor(id: string, position?: EditorViewColumn): Promise<void> {
 		const mainThreadEditor = this._documentsAndEditors.getEditor(id);
 		if (mainThreadEditor) {
 			const model = mainThreadEditor.getModel();
-			return this._editorService.openEditor({
+			await this._editorService.openEditor({
 				resource: model.uri,
 				options: { preserveFocus: false }
-			}, viewColumnToEditorGroup(this._editorGroupService, position)).then(() => { return; });
+			}, viewColumnToEditorGroup(this._editorGroupService, position));
+			return;
 		}
-		return Promise.resolve();
 	}
 
-	$tryHideEditor(id: string): Promise<void> {
+	async $tryHideEditor(id: string): Promise<void> {
 		const mainThreadEditor = this._documentsAndEditors.getEditor(id);
 		if (mainThreadEditor) {
-			const editors = this._editorService.visibleControls;
-			for (let editor of editors) {
-				if (mainThreadEditor.matches(editor)) {
-					return editor.group.closeEditor(editor.input).then(() => { return; });
+			const editorPanes = this._editorService.visibleEditorPanes;
+			for (let editorPane of editorPanes) {
+				if (mainThreadEditor.matches(editorPane)) {
+					return editorPane.group.closeEditor(editorPane.input);
 				}
 			}
 		}
-		return Promise.resolve();
 	}
 
 	$trySetSelections(id: string, selections: ISelection[]): Promise<void> {
-		if (!this._documentsAndEditors.getEditor(id)) {
+		const editor = this._documentsAndEditors.getEditor(id);
+		if (!editor) {
 			return Promise.reject(disposed(`TextEditor(${id})`));
 		}
-		this._documentsAndEditors.getEditor(id).setSelections(selections);
+		editor.setSelections(selections);
 		return Promise.resolve(undefined);
 	}
 
 	$trySetDecorations(id: string, key: string, ranges: IDecorationOptions[]): Promise<void> {
 		key = `${this._instanceId}-${key}`;
-		if (!this._documentsAndEditors.getEditor(id)) {
+		const editor = this._documentsAndEditors.getEditor(id);
+		if (!editor) {
 			return Promise.reject(disposed(`TextEditor(${id})`));
 		}
-		this._documentsAndEditors.getEditor(id).setDecorations(key, ranges);
+		editor.setDecorations(key, ranges);
 		return Promise.resolve(undefined);
 	}
 
 	$trySetDecorationsFast(id: string, key: string, ranges: number[]): Promise<void> {
 		key = `${this._instanceId}-${key}`;
-		if (!this._documentsAndEditors.getEditor(id)) {
+		const editor = this._documentsAndEditors.getEditor(id);
+		if (!editor) {
 			return Promise.reject(disposed(`TextEditor(${id})`));
 		}
-		this._documentsAndEditors.getEditor(id).setDecorationsFast(key, ranges);
+		editor.setDecorationsFast(key, ranges);
 		return Promise.resolve(undefined);
 	}
 
 	$tryRevealRange(id: string, range: IRange, revealType: TextEditorRevealType): Promise<void> {
-		if (!this._documentsAndEditors.getEditor(id)) {
+		const editor = this._documentsAndEditors.getEditor(id);
+		if (!editor) {
 			return Promise.reject(disposed(`TextEditor(${id})`));
 		}
-		this._documentsAndEditors.getEditor(id).revealRange(range, revealType);
+		editor.revealRange(range, revealType);
 		return Promise.resolve();
 	}
 
 	$trySetOptions(id: string, options: ITextEditorConfigurationUpdate): Promise<void> {
-		if (!this._documentsAndEditors.getEditor(id)) {
+		const editor = this._documentsAndEditors.getEditor(id);
+		if (!editor) {
 			return Promise.reject(disposed(`TextEditor(${id})`));
 		}
-		this._documentsAndEditors.getEditor(id).setConfiguration(options);
+		editor.setConfiguration(options);
 		return Promise.resolve(undefined);
 	}
 
 	$tryApplyEdits(id: string, modelVersionId: number, edits: ISingleEditOperation[], opts: IApplyEditsOptions): Promise<boolean> {
-		if (!this._documentsAndEditors.getEditor(id)) {
+		const editor = this._documentsAndEditors.getEditor(id);
+		if (!editor) {
 			return Promise.reject(disposed(`TextEditor(${id})`));
 		}
-		return Promise.resolve(this._documentsAndEditors.getEditor(id).applyEdits(modelVersionId, edits, opts));
+		return Promise.resolve(editor.applyEdits(modelVersionId, edits, opts));
 	}
 
-	$tryApplyWorkspaceEdit(dto: WorkspaceEditDto): Promise<boolean> {
-		const { edits } = reviveWorkspaceEditDto(dto);
-		return this._bulkEditService.apply({ edits }, undefined).then(() => true, err => false);
+	$tryApplyWorkspaceEdit(dto: IWorkspaceEditDto): Promise<boolean> {
+		const { edits } = reviveWorkspaceEditDto(dto)!;
+		return this._bulkEditService.apply({ edits }).then(() => true, _err => false);
 	}
 
 	$tryInsertSnippet(id: string, template: string, ranges: readonly IRange[], opts: IUndoStopOptions): Promise<boolean> {
-		if (!this._documentsAndEditors.getEditor(id)) {
+		const editor = this._documentsAndEditors.getEditor(id);
+		if (!editor) {
 			return Promise.reject(disposed(`TextEditor(${id})`));
 		}
-		return Promise.resolve(this._documentsAndEditors.getEditor(id).insertSnippet(template, ranges, opts));
+		return Promise.resolve(editor.insertSnippet(template, ranges, opts));
 	}
 
 	$registerTextEditorDecorationType(key: string, options: IDecorationRenderOptions): void {
@@ -283,6 +295,21 @@ CommandsRegistry.registerCommand('_workbench.open', function (accessor: Services
 	}
 	// finally, delegate to opener service
 	return openerService.open(resource).then(_ => undefined);
+});
+
+CommandsRegistry.registerCommand('_workbench.openWith', (accessor: ServicesAccessor, args: [URI, string, ITextEditorOptions | undefined, EditorViewColumn | undefined]) => {
+	const editorService = accessor.get(IEditorService);
+	const editorGroupsService = accessor.get(IEditorGroupsService);
+	const configurationService = accessor.get(IConfigurationService);
+	const quickInputService = accessor.get(IQuickInputService);
+
+	const [resource, id, options, position] = args;
+
+	const group = editorGroupsService.getGroup(viewColumnToEditorGroup(editorGroupsService, position)) ?? editorGroupsService.activeGroup;
+	const textOptions = options ? { ...options, ignoreOverrides: true } : { ignoreOverrides: true };
+
+	const input = editorService.createEditorInput({ resource });
+	return openEditorWith(input, id, textOptions, group, editorService, configurationService, quickInputService);
 });
 
 

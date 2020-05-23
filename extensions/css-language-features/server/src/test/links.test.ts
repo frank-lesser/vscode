@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import 'mocha';
 import * as assert from 'assert';
-import Uri from 'vscode-uri';
+import { URI }  from 'vscode-uri';
 import { resolve } from 'path';
 import { TextDocument, DocumentLink } from 'vscode-languageserver-types';
 import { WorkspaceFolder } from 'vscode-languageserver-protocol';
@@ -54,7 +54,7 @@ suite('Links', () => {
 	}
 
 	function getTestResource(path: string) {
-		return Uri.file(resolve(__dirname, '../../test/linksTestFixtures', path)).toString();
+		return URI.file(resolve(__dirname, '../../test/linksTestFixtures', path)).toString();
 	}
 
 	test('url links', function () {
@@ -70,6 +70,16 @@ suite('Links', () => {
 	test('node module resolving', function () {
 
 		let testUri = getTestResource('about.css');
+		let folders = [{ name: 'x', uri: getTestResource('') }];
+
+		assertLinks('html { background-image: url("~foo/hello.html|")',
+			[{ offset: 29, value: '"~foo/hello.html"', target: getTestResource('node_modules/foo/hello.html') }], testUri, folders
+		);
+	});
+
+	test('node module subfolder resolving', function () {
+
+		let testUri = getTestResource('subdir/about.css');
 		let folders = [{ name: 'x', uri: getTestResource('') }];
 
 		assertLinks('html { background-image: url("~foo/hello.html|")',

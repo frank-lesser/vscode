@@ -19,7 +19,7 @@ import * as ansiColors from 'ansi-colors';
 import * as path from 'path';
 import * as pump from 'pump';
 import * as sm from 'source-map';
-import * as uglifyes from 'uglify-es';
+import * as terser from 'terser';
 import * as VinylFile from 'vinyl';
 import * as bundle from './bundle';
 import { Language, processNlsFiles } from './i18n';
@@ -80,12 +80,7 @@ function loader(src: string, bundledFileHeader: string, bundleLoader: boolean): 
 					this.emit('data', data);
 				}
 			}))
-			.pipe(util.loadSourcemaps())
 			.pipe(concat('vs/loader.js'))
-			.pipe(es.mapSync<FileSourceMap, FileSourceMap>(function (f) {
-				f.sourceMap.sourceRoot = util.toFileUri(path.join(REPO_ROOT_PATH, 'src'));
-				return f;
-			}))
 	);
 }
 
@@ -154,7 +149,7 @@ export interface IOptimizeTaskOpts {
 	/**
 	 * (basically the Copyright treatment)
 	 */
-	header: string;
+	header?: string;
 	/**
 	 * (emit bundleInfo.json file)
 	 */
@@ -169,12 +164,18 @@ export interface IOptimizeTaskOpts {
 	languages?: Language[];
 }
 
+const DEFAULT_FILE_HEADER = [
+	'/*!--------------------------------------------------------',
+	' * Copyright (C) Microsoft Corporation. All rights reserved.',
+	' *--------------------------------------------------------*/'
+].join('\n');
+
 export function optimizeTask(opts: IOptimizeTaskOpts): () => NodeJS.ReadWriteStream {
 	const src = opts.src;
 	const entryPoints = opts.entryPoints;
 	const resources = opts.resources;
 	const loaderConfig = opts.loaderConfig;
-	const bundledFileHeader = opts.header;
+	const bundledFileHeader = opts.header || DEFAULT_FILE_HEADER;
 	const bundleLoader = (typeof opts.bundleLoader === 'undefined' ? true : opts.bundleLoader);
 	const out = opts.out;
 
@@ -267,7 +268,7 @@ function uglifyWithCopyrights(): NodeJS.ReadWriteStream {
 		};
 	};
 
-	const minify = (composer as any)(uglifyes);
+	const minify = (composer as any)(terser);
 	const input = es.through();
 	const output = input
 		.pipe(flatmap((stream, f) => {

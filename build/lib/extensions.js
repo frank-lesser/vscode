@@ -4,6 +4,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.packageMarketplaceExtensionsStream = exports.packageLocalExtensionsStream = exports.fromMarketplace = void 0;
 const es = require("event-stream");
 const fs = require("fs");
 const glob = require("glob");
@@ -13,7 +14,7 @@ const File = require("vinyl");
 const vsce = require("vsce");
 const stats_1 = require("./stats");
 const util2 = require("./util");
-const remote = require("gulp-remote-src");
+const remote = require("gulp-remote-retry-src");
 const vzip = require('gulp-vinyl-zip');
 const filter = require("gulp-filter");
 const rename = require("gulp-rename");
@@ -29,12 +30,18 @@ const commit = util.getVersion(root);
 const sourceMappingURLBase = `https://ticino.blob.core.windows.net/sourcemaps/${commit}`;
 function fromLocal(extensionPath) {
     const webpackFilename = path.join(extensionPath, 'extension.webpack.config.js');
-    if (fs.existsSync(webpackFilename)) {
-        return fromLocalWebpack(extensionPath);
-    }
-    else {
-        return fromLocalNormal(extensionPath);
-    }
+    const input = fs.existsSync(webpackFilename)
+        ? fromLocalWebpack(extensionPath)
+        : fromLocalNormal(extensionPath);
+    const tmLanguageJsonFilter = filter('**/*.tmLanguage.json', { restore: true });
+    return input
+        .pipe(tmLanguageJsonFilter)
+        .pipe(buffer())
+        .pipe(es.mapSync((f) => {
+        f.contents = Buffer.from(JSON.stringify(JSON.parse(f.contents.toString('utf8'))));
+        return f;
+    }))
+        .pipe(tmLanguageJsonFilter.restore);
 }
 function fromLocalWebpack(extensionPath) {
     const result = es.through();
@@ -95,7 +102,7 @@ function fromLocalWebpack(extensionPath) {
                     result.emit('error', compilation.warnings.join('\n'));
                 }
             };
-            const webpackConfig = Object.assign({}, require(webpackConfigPath), { mode: 'production' });
+            const webpackConfig = Object.assign(Object.assign({}, require(webpackConfigPath)), { mode: 'production' });
             const relativeOutputPath = path.relative(extensionPath, webpackConfig.output.path);
             return webpackGulp(webpackConfig, webpack, webpackDone)
                 .pipe(es.through(function (data) {
@@ -111,12 +118,6 @@ function fromLocalWebpack(extensionPath) {
                 data.contents = Buffer.from(contents.replace(/\n\/\/# sourceMappingURL=(.*)$/gm, function (_m, g1) {
                     return `\n//# sourceMappingURL=${sourceMappingURLBase}/extensions/${path.basename(extensionPath)}/${relativeOutputPath}/${g1}`;
                 }), 'utf8');
-                if (/\.js\.map$/.test(data.path)) {
-                    if (!fs.existsSync(path.dirname(data.path))) {
-                        fs.mkdirSync(path.dirname(data.path));
-                    }
-                    fs.writeFileSync(data.path, data.contents);
-                }
                 this.emit('data', data);
             }));
         });
@@ -180,12 +181,14 @@ function fromMarketplace(extensionName, version, metadata) {
 exports.fromMarketplace = fromMarketplace;
 const excludedExtensions = [
     'vscode-api-tests',
+    'vscode-web-playground',
     'vscode-colorize-tests',
     'vscode-test-resolver',
     'ms-vscode.node-debug',
     'ms-vscode.node-debug2',
+    'vscode-notebook-tests'
 ];
-const builtInExtensions = require('../builtInExtensions.json');
+const builtInExtensions = JSON.parse(fs.readFileSync(path.join(__dirname, '../../product.json'), 'utf8')).builtInExtensions;
 function packageLocalExtensionsStream() {
     const localExtensionDescriptions = glob.sync('extensions/*/package.json')
         .map(manifestPath => {
@@ -195,20 +198,21 @@ function packageLocalExtensionsStream() {
     })
         .filter(({ name }) => excludedExtensions.indexOf(name) === -1)
         .filter(({ name }) => builtInExtensions.every(b => b.name !== name));
-    return es.merge(gulp.src('extensions/node_modules/**', { base: '.' }), ...localExtensionDescriptions.map(extension => {
+    const nodeModules = gulp.src('extensions/node_modules/**', { base: '.' });
+    const localExtensions = localExtensionDescriptions.map(extension => {
         return fromLocal(extension.path)
             .pipe(rename(p => p.dirname = `extensions/${extension.name}/${p.dirname}`));
-    }))
-        .pipe(util2.setExecutableBit(['**/*.sh']))
-        .pipe(filter(['**', '!**/*.js.map']));
+    });
+    return es.merge(nodeModules, ...localExtensions)
+        .pipe(util2.setExecutableBit(['**/*.sh']));
 }
 exports.packageLocalExtensionsStream = packageLocalExtensionsStream;
 function packageMarketplaceExtensionsStream() {
-    return es.merge(builtInExtensions.map(extension => {
+    const extensions = builtInExtensions.map(extension => {
         return fromMarketplace(extension.name, extension.version, extension.metadata)
             .pipe(rename(p => p.dirname = `extensions/${extension.name}/${p.dirname}`));
-    }))
-        .pipe(util2.setExecutableBit(['**/*.sh']))
-        .pipe(filter(['**', '!**/*.js.map']));
+    });
+    return es.merge(extensions)
+        .pipe(util2.setExecutableBit(['**/*.sh']));
 }
 exports.packageMarketplaceExtensionsStream = packageMarketplaceExtensionsStream;
