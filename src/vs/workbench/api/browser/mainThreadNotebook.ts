@@ -44,7 +44,7 @@ export class MainThreadNotebookDocument extends Disposable {
 		}));
 	}
 
-	async applyEdit(modelVersionId: number, edits: ICellEditOperation[]): Promise<boolean> {
+	async applyEdit(modelVersionId: number, edits: ICellEditOperation[], emitToExtHost: boolean): Promise<boolean> {
 		await this.notebookService.transformEditsOutputs(this.textModel, edits);
 		return this._textModel.$applyEdit(modelVersionId, edits);
 	}
@@ -229,6 +229,10 @@ export class MainThreadNotebooks extends Disposable implements MainThreadNoteboo
 			this._removeNotebookEditor(editors);
 		}));
 
+		this._register(this._notebookService.onNotebookDocumentAdd(() => {
+			this._updateState();
+		}));
+
 		this._register(this._notebookService.onNotebookDocumentRemove(() => {
 			this._updateState();
 		}));
@@ -318,9 +322,7 @@ export class MainThreadNotebooks extends Disposable implements MainThreadNoteboo
 
 		const documents = new Set<NotebookTextModel>();
 		this._notebookService.listNotebookDocuments().forEach(document => {
-			if (documentEditorsMap.has(document.uri.toString())) {
-				documents.add(document);
-			}
+			documents.add(document);
 		});
 
 		if (!activeEditor && focusedNotebookEditor && focusedNotebookEditor.hasModel()) {
@@ -460,10 +462,10 @@ export class MainThreadNotebookController implements IMainNotebookController {
 
 				mainthreadNotebook.textModel.languages = data.languages;
 				mainthreadNotebook.textModel.metadata = data.metadata;
-				mainthreadNotebook.textModel.$applyEdit(mainthreadNotebook.textModel.versionId, [
+				await mainthreadNotebook.applyEdit(mainthreadNotebook.textModel.versionId, [
 					{ editType: CellEditType.Delete, count: mainthreadNotebook.textModel.cells.length, index: 0 },
 					{ editType: CellEditType.Insert, index: 0, cells: data.cells }
-				]);
+				], true);
 			}
 			return mainthreadNotebook.textModel;
 		}
@@ -476,14 +478,16 @@ export class MainThreadNotebookController implements IMainNotebookController {
 			document.textModel.metadata = backup.metadata;
 			document.textModel.languages = backup.languages;
 
-			document.textModel.$applyEdit(document.textModel.versionId, [
+			// restored from backup, update the text model without emitting any event to exthost
+			await document.applyEdit(document.textModel.versionId, [
 				{
 					editType: CellEditType.Insert,
 					index: 0,
 					cells: backup.cells || []
 				}
-			]);
+			], false);
 
+			// create document in ext host with cells data
 			await this._mainThreadNotebook.addNotebookDocument({
 				viewType: document.viewType,
 				handle: document.handle,
@@ -554,7 +558,7 @@ export class MainThreadNotebookController implements IMainNotebookController {
 		let mainthreadNotebook = this._mapping.get(URI.from(resource).toString());
 
 		if (mainthreadNotebook) {
-			return await mainthreadNotebook.applyEdit(modelVersionId, edits);
+			return await mainthreadNotebook.applyEdit(modelVersionId, edits, true);
 		}
 
 		return false;

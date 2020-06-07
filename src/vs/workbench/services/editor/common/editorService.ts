@@ -87,7 +87,7 @@ export interface ICustomEditorViewTypesHandler {
 
 export interface IEditorService {
 
-	_serviceBrand: undefined;
+	readonly _serviceBrand: undefined;
 
 	/**
 	 * Emitted when the currently active editor changes.
@@ -247,6 +247,8 @@ export interface IEditorService {
 
 	/**
 	 * Register handlers for custom editor view types.
+	 * The handler will provide all available custom editors registered
+	 * and also notify the editor service when a custom editor view type is registered/unregistered.
 	 */
 	registerCustomEditorViewTypesHandler(source: string, handler: ICustomEditorViewTypesHandler): IDisposable;
 
